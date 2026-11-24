@@ -5,7 +5,11 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
-
+import {
+  dataBaseConnect,
+  isDBHealthy,
+  closeDB,
+} from "./config/database.js";
 const PORT = Number(process.env.PORT) || 3000;
 const app = express();
 
@@ -15,7 +19,6 @@ app.use(morgan("dev"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
 
 app.use("/api", router);
 app.get("/", (_req, res) => {
@@ -28,8 +31,35 @@ app.get("/", (_req, res) => {
     },
   });
 });
+app.get("/health", async (_req, res) => {
+  const isDBhealthy = await isDBHealthy();
+  if (!isDBhealthy) {
+    res.status(503).json({ status: "error", dataBase: "disconnected" });
+    return;
+  }
+  res.status(200).json({ status: true, dataBase: "connected" });
+});
+
 app.use(notFoundHandler);
 app.use(errorHandler);
-app.listen(PORT, () => {
-  console.log(`Server: http://localhost:${PORT}`);
-});
+async function shutdown(signal: string) {
+  console.log(`${signal} received, shutting down...`);
+  await closeDB();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+async function start() {
+  try {
+    await dataBaseConnect();
+    app.listen(PORT, () => {
+      console.log(`Server: http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+start();
